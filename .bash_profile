@@ -290,10 +290,10 @@ function maglev_patch() {
 }
 
 function build_isac() {
-	mag_api_build $HOME/workspace/maglev/apic-em-core/services/network-design/common-settings-core clean install -Dmaven.test.skip=true
-	mag_api_build $HOME/workspace/maglev/models/models/aca-sxp-model
-	mag_api_build $HOME/workspace/maglev/models/models/aca-policy-model
-	mag_build
+	mag_api_build $APICEM_HOME/services/network-design/common-settings-core -Dmaven.test.skip=true
+	mag_api_build $MODELS_HOME/models/aca-sxp-model
+	mag_api_build $MODELS_HOME/models/aca-policy-model
+	mag_api_build $WORKSPACE
 
 }
 
@@ -393,6 +393,9 @@ function setup_auto_conf() {
 	sed -i -e "s/\"port\".*22.*/\"port\":\"$SSH_PORT\"/g" $CONF 
 }
 
+function install_jar() {
+	mvn install:install-file -Dfile=$1  -DgroupId=$2 -DartifactId=$3 -Dversion=$4 -Dpackaging=jar -DgeneratePom=true
+}
 function mag_build() {
 	mag_mvn clean install $*
 }
@@ -428,11 +431,40 @@ function maglev_ssh() {
 
 function maglev_scp() {
 	UPLOAD_DIR=${2:-"/tmp"}
-	add_sp ${MAGLEV_PASS} scp -o StrictHostKeyChecking=no $SCP_OPTS  "$1" ${MAGLEV_USER}@${MAGLEV_IP}:${UPLOAD_DIR}
+	info_log "Uploading $1 to $MAGLEV_IP:$UPLOAD_DIR"
+	mag_scp_exec "$1" ${MAGLEV_USER}@${MAGLEV_IP}:${UPLOAD_DIR}
+}
+
+
+function mag_scp_exec() {
+	add_sp ${MAGLEV_PASS} scp -o StrictHostKeyChecking=no $SCP_OPTS $*
 }
 
 function get_mag_file() {
-	add_sp ${MAGLEV_PASS} scp -o StrictHostKeyChecking=no $SCP_OPTS ${MAGLEV_USER}@${MAGLEV_IP}:${1} "$2"
+ 	mag_scp_exec $SCP_OPTS ${MAGLEV_USER}@${MAGLEV_IP}:${1} "$2"
+}
+
+function mag_attach_jprofiler() {
+	TMP_DIR="/tmp"	
+	SERVICE_NAME="$1"
+	JPROFILER_TAR_NAME="jprofiler.tar.gz"
+	JSCRIPT_PATH="jprofiler_init.sh"
+	JPROFILER_PORT="12345"
+	JPROFILER_VERSION=${3:-"10.1.1"}
+	JPROFILER_TAR_PATH=${2:-"$HOME/Downloads/jprofiler_linux_10_1_1.tar.gz"}
+	info_log "Attaching jprofiler version $JPROFILER_VERSION from $JPROFILER_TAR_PATH to the service $SERVICE_NAME on $MAGLEV_IP"
+	rm -rf $JSCRIPT_PATH
+	echo "#!/bin/bash -e" > $JSCRIPT_PATH
+	echo "magctl service cp '$TMP_DIR/$JPROFILER_TAR_NAME' $SERVICE_NAME:$JPROFILER_TAR_NAME" >> $JSCRIPT_PATH
+	echo "magctl service exec $SERVICE_NAME 'tar -xvzf $JPROFILER_TAR_NAME'" >> $JSCRIPT_PATH
+	echo "magctl service exec $SERVICE_NAME './jprofiler$JPROFILER_VERSION/bin/jpenable --port=$JPROFILER_PORT --gui'" >> $JSCRIPT_PATH
+	exec maglev_scp $JSCRIPT_PATH
+	exec maglev_scp $JPROFILER_TAR_PATH $TMP_DIR/$JPROFILER_TAR_NAME
+	exec magexec "chmod +x $TMP_DIR/$JSCRIPT_PATH"
+	magexec -tt "cd $TMP_DIR;./$JSCRIPT_PATH"
+	magexec magctl service unexpose $SERVICE_NAME $JPROFILER_PORT
+	magexec magctl service expose $SERVICE_NAME $JPROFILER_PORT
+
 }
 
 function mag_sudo_scp() {
@@ -449,6 +481,7 @@ function mag_sudo_exec() {
 }
 
 function magexec() {
+	info_log "Executing $* on $MAGLEV_IP"
 	maglev_ssh $MAGLEV_IP $*
 }
 
@@ -531,6 +564,17 @@ function set_ssh_port() {
 	set_var SSH_OPTS "-p $SSH_PORT"
 	set_var SCP_OPTS "-P $SSH_PORT"
 }
+
+function get_times() {
+	grep -r "$1" "$2" | wc -l 
+	grep -r "$1" "$2" | head -n 1
+	grep -r "$1" "$2" | tail -n 1
+}
+
+function log_service() {
+	magexec magctl service logs -rf $1 > $2
+}
+
 # Setting PATH for Python 3.6
 # The original version is saved in .bash_profile.pysave
 if [ -f ~/.git-completion.bash ]; then
@@ -560,7 +604,7 @@ export DEP_PATH="$WORKSPACE/jars/sxp-parent/sxp-dyn;$WORKSPACE/jars/sxp-parent/s
 export AUTOMATION_TEST_DIR="$WORKSPACE/automation/aca/tests/api_test/test_sxp_binding_mgr"
 export AUTO_TEST_CONFIG="$WORKSPACE/automation/aca/config/local.json"
 #export MAGLEV_IP="172.23.109.32"
-export MAGLEV_IP="172.21.169.101"
+export MAGLEV_IP="172.23.118.83"
 export SSH_PORT="2222"
 export SSH_OPTS="-p $SSH_PORT"
 export SCP_OPTS="-P $SSH_PORT"
@@ -570,3 +614,8 @@ alias ww="echo \"$WORKSPACE\" && cd \"$WORKSPACE\""
 #setShellPrompt
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# Setting PATH for Python 3.6
+# The original version is saved in .bash_profile.pysave
+PATH="/Library/Frameworks/Python.framework/Versions/3.6/bin:${PATH}"
+export PATH
