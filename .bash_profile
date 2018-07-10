@@ -6,6 +6,7 @@ eval "$(pyenv init -)"
 eval "$(pyenv virtualenv-init -)"
 export MODELS_HOME="$HOME/workspace/maglev/models"
 export APICEM_HOME="/Users/aukao/workspace/maglev/apic-em-core"
+export ISAC_HOME="/Users/aukao/Workspaces/DNA_SDK_maglev/ACA_Demo/isac"
 export MAG_SETTINGS="$HOME/Downloads/apic-dev-settings.xml"
 export UNIQ_HOME="/Users/aukao/.virtualenvs"
 export UNIQ_WORK="$APICEM_HOME/test/uniq"
@@ -63,7 +64,8 @@ function gitBHN() {
 		sl gitBH
 	else
 		line_name=$(gl gitBH ${line_num})
-		echo $line_name			
+		echo $line_name
+		git checkout $line_name
 	fi
 }
 
@@ -101,6 +103,41 @@ function searchGitStash() {
 		gitstash $i | grep $2
 	done
 }
+
+function get_mvn_info() {
+	GROUP_ID=$(grep $1 -B 3 -A 3 $2  | grep groupId | awk -F '[<>]' '{print $3}')
+	ARTIFACT_ID=$(grep $1 -B 3 -A 3 $2  | grep artifactId | awk -F '[<>]' '{print $3}')
+	ARTIFACT_VERSION=$(grep $1 -B 3 -A 3 $2  | grep version | awk -F '[<>]' '{print $3}')
+	info_log "Extracted details of $1 from the pom $2. Group ID: $GROUP_ID, Artifact ID: $ARTIFACT_ID, Version: $ARTIFACT_VERSION"
+}
+
+function mvn_install_from_pom() {
+	ARTIFACT_REGEX=$1
+	POM_FILE=$2
+	JAR=$3
+	get_mvn_info $ARTIFACT_REGEX $POM_FILE
+	mvn_install_jar $JAR $GROUP_ID $ARTIFACT_ID $ARTIFACT_VERSION jar
+
+}
+
+function mvn_install_jar() {
+	mvn install:install-file -Dfile=$1 -DgroupId=$2 -DartifactId=$3 -Dversion=$4 -Dpackaging=$5
+
+}
+
+function build_sxp() {
+	SXP_ENGINE_POM=$ISAC_HOME/jars/sxp-parent/sxp-engine-facade/pom.xml
+	cd $SXP_HOME;
+	if [ $# -ne 0 ]; then
+		exec mvn $*
+	fi
+	SXP_CORE_JAR=$(find . -iname org.opendaylight.sxp.sxp-core*jar)
+	SXP_API_JAR=$(find . -iname org.opendaylight.sxp.sxp-api*jar)
+	info_log "Install sxp-core jar from $SXP_CORE_JAR and sxp-api jar from $SXP_API_JAR"
+	exec mvn_install_from_pom at-sxp-core $SXP_ENGINE_POM $SXP_CORE_JAR && mvn_install_from_pom at-sxp-api $SXP_ENGINE_POM $SXP_API_JAR 
+
+}
+
 ################################################################################
 # Helper Commands
 ################################################################################
@@ -291,9 +328,10 @@ function maglev_patch() {
 
 function build_isac() {
 	mag_api_build $APICEM_HOME/services/network-design/common-settings-core -Dmaven.test.skip=true
-	mag_api_build $MODELS_HOME/models/aca-sxp-model
-	mag_api_build $MODELS_HOME/models/aca-policy-model
-	mag_api_build $WORKSPACE
+	mag_api_build $MODELS_HOME/models/aca-sxp-model -nsu
+	
+	mag_api_build $MODELS_HOME/models/aca-policy-model -nsu
+	mag_api_build $WORKSPACE -nsu
 
 }
 
@@ -444,6 +482,12 @@ function get_mag_file() {
  	mag_scp_exec $SCP_OPTS ${MAGLEV_USER}@${MAGLEV_IP}:${1} "$2"
 }
 
+function get_service_file() {
+	mag_exec magctl service cp "${1}:${2}" .
+	get_mag_file $2
+}
+
+
 function mag_attach_jprofiler() {
 	TMP_DIR="/tmp"	
 	SERVICE_NAME="$1"
@@ -496,6 +540,11 @@ function mag_plugin_jar_deploy() {
 	info_log "TAR BALL PATH IS: ${TAR_BALL_PATH}"
 
 }
+
+function mag_get_rmq_pwd() {
+ 	magexec -tt magctl service exec rabbitmq "cat vault/rabbitmq-appuser; echo " 2>/dev/null
+ }
+
 
 function mag_named_query_deploy() {
 	PLUGIN_DIR="/data/maglev/srv/maglev-system/glusterfs/mnt/bricks/default_brick/fusion/plugin_catalog/model"
@@ -608,7 +657,7 @@ export MAGLEV_IP="172.23.118.83"
 export SSH_PORT="2222"
 export SSH_OPTS="-p $SSH_PORT"
 export SCP_OPTS="-P $SSH_PORT"
-export SXP_HOME="$HOME/workspace/sxp"
+export SXP_HOME="/Users/aukao/Workspaces/DNA_SDK_maglev/ACA_Demo/sxp"
 alias totoro="while true; do echo Totoro is cool; done"
 alias ww="echo \"$WORKSPACE\" && cd \"$WORKSPACE\""
 #setShellPrompt
