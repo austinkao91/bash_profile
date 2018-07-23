@@ -326,12 +326,27 @@ function maglev_patch() {
 	maglev_patcher_exec $TYPE $ACTION /tmp/$FILENAME --appstack $APPSTACK $PACKAGE_OPTS $SBG  
 }
 
+function exec_at() {
+	EXEC_DIR=$1
+	EXEC_COMMAND=${@:2}
+	cd "$EXEC_DIR" && $EXEC_COMMAND && cd -	
+}
+
+function git_update() {
+	BRANCH=$1
+	REMOTE=${2:-"origin"}
+	git fetch && git checkout $BRANCH && git pull $REMOTE $BRANCH 
+}
+
 function build_isac() {
-	mag_api_build $APICEM_HOME/services/network-design/common-settings-core -Dmaven.test.skip=true
-	mag_api_build $MODELS_HOME/models/aca-sxp-model -nsu
+	MVN_OPTS=$*
+	exec_at $APICEM_HOME/services/network-design/common-settings-core "git_update release/jura && mag_mvn clean install $MVN_OPTS"
+    	
+	mag_api_build $MODELS_HOME/models/aca-sxp-model "git_update feature/aca_jura && mag_mvn clean install $MVN_OPTS"
 	
-	mag_api_build $MODELS_HOME/models/aca-policy-model -nsu
-	mag_api_build $WORKSPACE -nsu
+	mag_api_build $MODELS_HOME/models/aca-policy-model $MVN_OPTS
+	mag_api_build $MODELS_HOME/models/aca-trustsec-model $MVN_OPTS
+	mag_api_build $WORKSPACE $MVN_OPTS
 
 }
 
@@ -454,7 +469,7 @@ function api_build() {
 function mag_api_build() {
 	API_DIR=$1
 	MVN_OPTS="${@:2}"
-	cd "$API_DIR" && mag_mvn clean install $MVN_OPTS && cd -
+	exec_at $API_DIR mag_mvn clean install $MVN_OPTS
 }
 
 
@@ -565,6 +580,19 @@ function set_mag_ip() {
 
 function uniqApiGen() {
 	uniq generate api-client -c $MAGLEV_IP -u $MAGLEV_UI_USER -p $MAGLEV_UI_PASS -s $1 --maglev
+}
+
+function get_basic_auth() {
+	USER=$1
+	PWD=$2
+	BASE64CRED=$(printf "$USER:$PWD" | base64)
+	echo "Authorization: Basic $BASE64CRED"
+}
+
+function get_mag_token() {
+	BASIC_AUTH_HEADER=$(get_basic_auth $MAGLEV_UI_USER $MAGLEV_UI_PASS)
+	JSON_TOKEN=$(curl --silent -k https://$MAGLEV_IP/api/system/v1/auth/token -X POST -H "$BASIC_AUTH_HEADER")
+	echo $JSON_TOKEN | python3 -c "import sys, json; print(json.load(sys.stdin)['Token'])"
 }
 
 ################################################################################
