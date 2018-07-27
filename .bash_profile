@@ -243,7 +243,7 @@ function gitBranch() {
 }
 
 function setShellPrompt() {
-    PS1="\e[1;31m\t[\e[m\$?\e[1;31m]\\h:\e[1;35m\\W\e[1;31m \\u\[\033[32m\]\$(gitBranch)\e[m\\$ "
+    PS1="\e[1;31m\t[\e[m\$?\e[1;31m\\h:\e[1;35m\\W\e[1;31m \\u\[\033[32m\]\$(gitBranch)\e[m\\$ "
     PS2=">"
 }
 
@@ -329,24 +329,27 @@ function maglev_patch() {
 function exec_at() {
 	EXEC_DIR=$1
 	EXEC_COMMAND=${@:2}
-	cd "$EXEC_DIR" && $EXEC_COMMAND && cd -	
+	info_log "Executing $EXEC_COMMAND at $EXEC_DIR"
+	cd "$EXEC_DIR" && eval $EXEC_COMMAND && cd -	
 }
 
 function git_update() {
 	BRANCH=$1
-	REMOTE=${2:-"origin"}
-	git fetch && git checkout $BRANCH && git pull $REMOTE $BRANCH 
+	REMOTE="origin"
+	info_log "Checking out $BRANCH from $REMOTE and updating it"
+	git fetch $REMOTE $BRANCH && git checkout $BRANCH && git pull $REMOTE $BRANCH 
 }
 
 function build_isac() {
-	MVN_OPTS=$*
-	exec_at $APICEM_HOME/services/network-design/common-settings-core "git_update release/jura && mag_mvn clean install $MVN_OPTS"
+	OPTS=${@:2}
+	BRANCH_NAME=$1
+	info_log "Building isac repo on $BRANCH_NAME with the maven options $OPTS"
+	exec_at $APICEM_HOME/services/network-design/common-settings-core "git_update release/$BRANCH_NAME && mag_mvn clean install $OPTS"
     	
-	mag_api_build $MODELS_HOME/models/aca-sxp-model "git_update feature/aca_jura && mag_mvn clean install $MVN_OPTS"
-	
-	mag_api_build $MODELS_HOME/models/aca-policy-model $MVN_OPTS
-	mag_api_build $MODELS_HOME/models/aca-trustsec-model $MVN_OPTS
-	mag_api_build $WORKSPACE $MVN_OPTS
+	exec_at $MODELS_HOME/models/aca-sxp-model "git_update feature/aca_$BRANCH_NAME && mag_mvn clean install $OPTS"
+	mag_api_build $MODELS_HOME/models/aca-policy-model $OPTS
+	mag_api_build $MODELS_HOME/models/aca-trustsec-model $OPTS
+	exec_at $WORKSPACE "git_update release/$BRANCH_NAME && mag_mvn clean install $OPTS"
 
 }
 
